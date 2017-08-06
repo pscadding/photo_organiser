@@ -5,6 +5,7 @@ import os, sys
 import logging
 import pprint
 import exifread
+from collections import defaultdict
 from datetime import datetime
 
 logger = logging.getLogger('Photo_Organiser')
@@ -14,9 +15,9 @@ logger.setLevel(logging.DEBUG)
 
 tag_match_list = ['Holiday','Events','Outings','Birthday']
 
-# root_path = r"F:\Users\Pictures\Photos\Holidays"
-root_path = r"/Volumes/Seagate Expansion Drive/Users/Pictures/Photos/Holidays"
-dest_folder = r"/Volumes/Seagate Expansion Drive/Users/Pictures/Photos"
+root_path = r"F:\Users\Pictures\Photos\Holidays"
+# root_path = r"/Volumes/Seagate Expansion Drive/Users/Pictures/Photos/Holidays"
+dest_folder = r"F:\Users/Pictures/Photos"
 
 files_not_copied = []
 
@@ -44,54 +45,80 @@ def get_date_time(data):
     logger.debug("%s %s" % (date_times,datetime_object))
     return datetime_object
 
-def construct_new_path(file,tags,datetime):
+def construct_new_path(tags,datetime):
 
     if tags:
         path = os.sep.join([str(datetime.year),datetime.strftime("%B")] + tags)
     else:
         path = datetime.strftime("%Y\\%B\\%d")
 
-    path = os.path.join(path,file)
     logger.info(path)
 
     return path
 
+def file_stats():
 
+    file_types = defaultdict(int)
 
-for root, folders, files in os.walk(root_path):
-    logger.info("Root: %s" % root)
-    for aFile in files:
-        source_path = os.path.join(root,aFile)
-        logger.info("%s" % source_path)
+    for root, folders, files in os.walk(root_path):
+        for aFile in files:
+            file_name, ext = os.path.splitext(aFile)
+            file_types[ext.lower()] += 1
 
+    logger.info(pprint.pformat(file_types))
 
-        with open(source_path, 'rb') as f:
+def organise_files():
 
-            tags = find_tags(source_path,tag_match_list)
+    for root, folders, files in os.walk(root_path):
+        logger.info("Root: %s" % root)
 
-            # Return Exif tags
-            try:
-                exif_tags = exifread.process_file(f)
-                # pprint.pprint(exif_tags)
+        files_to_copy = defaultdict(dict)
 
-                logger.debug("Tags: %s" % tags)
-                date_time = get_date_time(exif_tags)
-            except OSError as e:
-                logger.warning("Failed to read exif data: %s" % e)
-                files_not_copied.append(source_path)
+        for aFile in files:
+            source_path = os.path.join(root,aFile)
+
+            file_name, ext = os.path.splitext(source_path)
+            logger.info("%s" % source_path)
+
+            existing_file = files_to_copy.get(file_name,{}).get('dest')
+            files_to_copy[file_name][ext] = aFile
+
+            if existing_file:
                 continue
 
-            if date_time is None:
-                files_not_copied.append(source_path)
-                continue
 
-        new_path = construct_new_path(aFile, tags, date_time)
-        new_path = os.path.join(dest_folder,new_path)
-        logger.info(new_path)
+            with open(source_path, 'rb') as f:
 
-        #handle clashes with file name
+                tags = find_tags(source_path,tag_match_list)
 
+                # Return Exif tags
+                try:
+                    exif_tags = exifread.process_file(f)
+                    # pprint.pprint(exif_tags)
 
-        logger.info("\n\n\n")
+                    logger.debug("Tags: %s" % tags)
+                    date_time = get_date_time(exif_tags)
+                except OSError as e:
+                    logger.warning("Failed to read exif data: %s" % e)
+                    files_not_copied.append(source_path)
+                    continue
 
-logger.info("Files not copied: %s" % files_not_copied)
+                if date_time is None:
+                    files_not_copied.append(source_path)
+                    continue
+
+            new_path = construct_new_path(tags, date_time)
+            new_path = os.path.join(dest_folder, new_path)
+            logger.info(new_path)
+
+            files_to_copy[file_name]['dest'] = new_path
+
+            #handle clashes with file name
+            logger.info("\n\n\n")
+
+        logger.info(pprint.pformat(files_to_copy))
+
+    logger.info("Files not copied: %s" % files_not_copied)
+
+# file_stats()
+organise_files()
